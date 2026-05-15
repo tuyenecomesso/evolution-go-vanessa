@@ -8,7 +8,7 @@ WORKDIR /build
 COPY go.mod go.sum ./
 
 # Copiar whatsmeow-lib que é uma dependência local
-COPY whatsmeow-lib/ ./whatsmeow-lib/
+RUN git clone https://github.com/evolution-foundation/whatsmeow.git whatsmeow-lib
 
 # Agora fazer download das dependências (com replace funcionando)
 RUN go mod download
