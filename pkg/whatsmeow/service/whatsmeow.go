@@ -490,7 +490,7 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 					w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] Falha na segunda tentativa de conexão: %v", cd.Instance.Id, err)
 					return
 				}
-			} else if strings.Contains(err.Error(), "username/password authentication failed") {
+			} else if strings.Contains(err.Error(), "username/password authentication failed") || strings.Contains(err.Error(), "Proxy Authentication Required") {
 				w.loggerWrapper.GetLogger(cd.Instance.Id).LogWarn("[%s] Proxy authentication failed, attempting to connect without proxy", cd.Instance.Id)
 
 				// Desabilita o proxy
@@ -541,7 +541,7 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 						delete(w.myClientPointer, cd.Instance.Id)
 						return
 					}
-				} else if strings.Contains(err.Error(), "username/password authentication failed") {
+				} else if strings.Contains(err.Error(), "username/password authentication failed") || strings.Contains(err.Error(), "Proxy Authentication Required") {
 					w.loggerWrapper.GetLogger(cd.Instance.Id).LogWarn("[%s] Proxy authentication failed during QR connection, attempting without proxy", cd.Instance.Id)
 
 					// Desabilita o proxy
