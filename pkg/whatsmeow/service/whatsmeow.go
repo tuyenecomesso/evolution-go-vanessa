@@ -511,8 +511,21 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 	} else {
 		qrChan, err := client.GetQRChannel(context.Background())
 		if err != nil {
-			if !errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
+			if errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
+				// Device store has credentials but Store.ID was nil at check time — connect directly
+				w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] ErrQRStoreContainsID: device has stored credentials, connecting directly without QR", cd.Instance.Id)
+				connectErr := client.Connect()
+				if connectErr != nil {
+					w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] Failed to connect with stored credentials: %v", cd.Instance.Id, connectErr)
+					delete(w.clientPointer, cd.Instance.Id)
+					delete(w.myClientPointer, cd.Instance.Id)
+					return
+				}
+				// Successfully connected — fall through to kill loop
+			} else {
 				w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] Failed to get QR channel: %v", cd.Instance.Id, err)
+				delete(w.clientPointer, cd.Instance.Id)
+				delete(w.myClientPointer, cd.Instance.Id)
 				return
 			}
 		} else {
@@ -524,6 +537,8 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 					err = client.Connect()
 					if err != nil {
 						w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] Falha na segunda tentativa de conexão: %v", cd.Instance.Id, err)
+						delete(w.clientPointer, cd.Instance.Id)
+						delete(w.myClientPointer, cd.Instance.Id)
 						return
 					}
 				} else if strings.Contains(err.Error(), "username/password authentication failed") {
@@ -536,11 +551,15 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 					err = client.Connect()
 					if err != nil {
 						w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] Failed to connect even without proxy: %v", cd.Instance.Id, err)
+						delete(w.clientPointer, cd.Instance.Id)
+						delete(w.myClientPointer, cd.Instance.Id)
 						return
 					}
 					w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Successfully connected without proxy", cd.Instance.Id)
 				} else {
 					w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] Failed to connect: %v", cd.Instance.Id, err)
+					delete(w.clientPointer, cd.Instance.Id)
+					delete(w.myClientPointer, cd.Instance.Id)
 					return
 				}
 			}
