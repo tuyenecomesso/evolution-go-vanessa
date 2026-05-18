@@ -224,7 +224,9 @@ func (i instances) Connect(data *ConnectStruct, instance *instance_model.Instanc
 	eventString := strings.Join(subscribedEvents, ",")
 
 	instance.Events = eventString
-	instance.Webhook = data.WebhookUrl
+	if data.WebhookUrl != "" {
+		instance.Webhook = data.WebhookUrl
+	}
 	instance.RabbitmqEnable = data.RabbitmqEnable
 	instance.NatsEnable = data.NatsEnable
 	instance.WebSocketEnable = data.WebSocketEnable
@@ -407,33 +409,40 @@ func (i instances) GetQr(instance *instance_model.Instance) (*QrcodeStruct, erro
 	logger := i.loggerWrapper.GetLogger(instance.Id)
 	client := i.clientPointer[instance.Id]
 
-	// Se não há cliente ou o cliente está logado, precisamos iniciar um novo cliente
+	_, clientAlreadyStarting := i.killChannel[instance.Id]
+
 	if client == nil || client.IsLoggedIn() {
 		if client != nil && client.IsLoggedIn() {
 			logger.LogInfo("[%s] Client is logged in, starting new instance for QR code", instance.Id)
-		} else {
+			err := i.whatsmeowService.StartInstance(instance.Id)
+			if err != nil {
+				logger.LogError("[%s] Failed to start instance: %v", instance.Id, err)
+				return nil, fmt.Errorf("failed to start instance: %w", err)
+			}
+		} else if !clientAlreadyStarting {
+			// Connect() não foi chamado ainda — iniciar agora
 			logger.LogInfo("[%s] No client found, starting new instance for QR code", instance.Id)
+			err := i.whatsmeowService.StartInstance(instance.Id)
+			if err != nil {
+				logger.LogError("[%s] Failed to start instance: %v", instance.Id, err)
+				return nil, fmt.Errorf("failed to start instance: %w", err)
+			}
+		} else {
+			logger.LogInfo("[%s] Client not ready yet, Connect() already triggered — waiting for QR code", instance.Id)
 		}
 
-		// Iniciar nova instância para gerar QR code
-		err := i.whatsmeowService.StartInstance(instance.Id)
-		if err != nil {
-			logger.LogError("[%s] Failed to start instance: %v", instance.Id, err)
-			return nil, fmt.Errorf("failed to start instance: %w", err)
-		}
-
-		// Aguardar um pouco para o cliente iniciar e gerar QR code
+		// Aguardar para o cliente iniciar e gerar QR code
 		logger.LogInfo("[%s] Waiting for QR code generation...", instance.Id)
-		time.Sleep(3 * time.Second)
+		time.Sleep(4 * time.Second)
 
-		// Verificar novamente se há cliente
 		client = i.clientPointer[instance.Id]
 		if client != nil && client.IsLoggedIn() {
 			return nil, fmt.Errorf("session already logged in")
 		}
 	} else if !client.IsConnected() {
-		// Se o cliente existe mas não está conectado, pode estar aguardando QR code
-		logger.LogInfo("[%s] Client exists but not connected, checking for existing QR code", instance.Id)
+		// Cliente existe mas ainda não conectado (StartClient em andamento) — aguardar
+		logger.LogInfo("[%s] Client exists but not connected, waiting for QR code generation...", instance.Id)
+		time.Sleep(4 * time.Second)
 	}
 
 	// Buscar instância atualizada do banco para pegar o QR code mais recente
@@ -444,16 +453,21 @@ func (i instances) GetQr(instance *instance_model.Instance) (*QrcodeStruct, erro
 
 	code := instance.Qrcode
 	if code == "" {
-		// Se não há QR code ainda, aguardar um pouco mais e tentar novamente
-		logger.LogInfo("[%s] No QR code available yet, waiting a bit more...", instance.Id)
-		time.Sleep(2 * time.Second)
+		// Tentar mais duas vezes com intervalo de 2 segundos
+		for attempt := 0; attempt < 2; attempt++ {
+			logger.LogInfo("[%s] No QR code yet, waiting (attempt %d/2)...", instance.Id, attempt+1)
+			time.Sleep(2 * time.Second)
 
-		instance, err = i.instanceRepository.GetInstanceByID(instance.Id)
-		if err != nil {
-			return nil, err
+			instance, err = i.instanceRepository.GetInstanceByID(instance.Id)
+			if err != nil {
+				return nil, err
+			}
+			code = instance.Qrcode
+			if code != "" {
+				break
+			}
 		}
 
-		code = instance.Qrcode
 		if code == "" {
 			return nil, fmt.Errorf("no QR code available. Please wait a moment and try again")
 		}
