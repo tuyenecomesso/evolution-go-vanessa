@@ -15,15 +15,18 @@ import (
 
 type webhookProducer struct {
 	url           string
+	apiKey        string
 	loggerWrapper *logger_wrapper.LoggerManager
 }
 
 func NewWebhookProducer(
 	url string,
+	apiKey string,
 	loggerWrapper *logger_wrapper.LoggerManager,
 ) producer_interfaces.Producer {
 	return &webhookProducer{
 		url:           url,
+		apiKey:        apiKey,
 		loggerWrapper: loggerWrapper,
 	}
 }
@@ -71,6 +74,9 @@ func (p *webhookProducer) sendWebhook(url string, body []byte, userID string) (e
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if p.apiKey != "" {
+		req.Header.Set("apikey", p.apiKey)
+	}
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
