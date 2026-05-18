@@ -67,6 +67,7 @@ type CreateStruct struct {
 	InstanceId       string                           `json:"instanceId"`
 	Name             string                           `json:"name"`
 	Token            string                           `json:"token"`
+	WebhookUrl       string                           `json:"webhookUrl"`
 	Proxy            *ProxyConfig                     `json:"proxy"`
 	AdvancedSettings *instance_model.AdvancedSettings `json:"advancedSettings"`
 }
@@ -174,6 +175,7 @@ func (i instances) Create(data *CreateStruct) (*instance_model.Instance, error) 
 		Id:         data.InstanceId,
 		Name:       data.Name,
 		Token:      data.Token,
+		Webhook:    data.WebhookUrl,
 		OsName:     i.config.OsName,
 		Proxy:      string(proxyJson),
 		Connected:  false,
