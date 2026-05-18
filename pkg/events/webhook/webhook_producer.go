@@ -46,7 +46,9 @@ func (p *webhookProducer) Produce(
 	if p.url != "" {
 		go p.sendWebhookWithRetry(p.url, payload, 5, 30*time.Second, userID)
 	}
-	if webhookUrl != "" {
+	// Only send to the per-instance URL if it differs from the global URL,
+	// to avoid duplicate deliveries when both point to the same endpoint.
+	if webhookUrl != "" && webhookUrl != p.url {
 		go p.sendWebhookWithRetry(webhookUrl, payload, 5, 30*time.Second, userID)
 	}
 
