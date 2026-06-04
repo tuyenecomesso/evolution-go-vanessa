@@ -35,6 +35,8 @@ type Config struct {
 	AmqpGlobalEnabled    bool
 	WebhookUrl           string
 	WebhookApiKey        string
+	VanessaGatewayUrl    string
+	VanessaGatewayApiKey string
 	ClientName           string
 	ApiAudioConverter    string
 	ApiAudioConverterKey string
@@ -69,7 +71,6 @@ type Config struct {
 	LogMaxAge     int
 	LogDirectory  string
 	LogCompress   bool
-
 }
 
 // EnsureDBExists connects to postgres (without the target database) and creates it if it doesn't exist.
@@ -260,6 +261,8 @@ func Load() *Config {
 
 	webhookUrl := os.Getenv(config_env.WEBHOOK_URL)
 	webhookApiKey := os.Getenv(config_env.WEBHOOK_API_KEY)
+	vanessaGatewayUrl := os.Getenv(config_env.VANESSA_GATEWAY_URL)
+	vanessaGatewayApiKey := os.Getenv(config_env.VANESSA_GATEWAY_API_KEY)
 
 	apiAudioConverter := os.Getenv(config_env.API_AUDIO_CONVERTER)
 	apiAudioConverterKey := os.Getenv(config_env.API_AUDIO_CONVERTER_KEY)
@@ -359,6 +362,8 @@ func Load() *Config {
 		AmqpGlobalEnabled:    amqpGlobalEnabled == "true",
 		WebhookUrl:           webhookUrl,
 		WebhookApiKey:        webhookApiKey,
+		VanessaGatewayUrl:    vanessaGatewayUrl,
+		VanessaGatewayApiKey: vanessaGatewayApiKey,
 		ClientName:           clientName,
 		ApiAudioConverter:    apiAudioConverter,
 		ApiAudioConverterKey: apiAudioConverterKey,

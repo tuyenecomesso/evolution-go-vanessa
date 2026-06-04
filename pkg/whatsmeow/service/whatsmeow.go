@@ -1464,6 +1464,36 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 
 				// Only process storage if download was successful
 				if err == nil && len(data) > 0 {
+					if img != nil || associatedImg != nil || audio != nil || associatedAudio != nil {
+						mediaKind := ""
+						filename := evt.Info.ID + extension
+						prompt := "Descreve esta imagem e devolve uma analise curta para a Vanessa responder ao utilizador."
+						if audio != nil || associatedAudio != nil {
+							mediaKind = "audio"
+						} else {
+							mediaKind = "image"
+							if img != nil && img.GetCaption() != "" {
+								prompt = img.GetCaption()
+							} else if associatedImg != nil && associatedImg.GetCaption() != "" {
+								prompt = associatedImg.GetCaption()
+							}
+						}
+
+						mediaText, gatewayErr := mycli.analyzeMediaWithVanessaGateway(downloadCtx, mediaKind, base64.StdEncoding.EncodeToString(data), mimeType, filename, prompt)
+						if gatewayErr != nil {
+							mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Vanessa Gateway media analysis failed - ID: %s, Error: %v", mycli.userID, evt.Info.ID, gatewayErr)
+						} else if mediaText != "" {
+							messageMap["vanessaGateway"] = map[string]interface{}{
+								"kind":       mediaKind,
+								"outputText": mediaText,
+								"mimeType":   mimeType,
+								"filename":   filename,
+							}
+							messageMap["vanessaMediaText"] = mediaText
+							messageMap["conversation"] = buildVanessaMediaConversation(mediaKind, prompt, mediaText)
+						}
+					}
+
 					if mycli.config.MinioEnabled {
 						fileName := evt.Info.ID + extension
 						storageStart := time.Now()
@@ -1596,17 +1626,17 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			buttonClickMap := map[string]interface{}{
 				"event": "ButtonClick",
 				"data": map[string]interface{}{
-					"buttonId":     buttonClickData["buttonId"],
-					"buttonText":   buttonClickData["buttonText"],
-					"type":         buttonClickData["type"],
-					"phone":        dataMap["Sender"],
-					"jid":          dataMap["Sender"],
-					"pushName":     dataMap["PushName"],
-					"messageId":    dataMap["ID"],
-					"chat":         dataMap["Chat"],
-					"fromMe":       dataMap["FromMe"],
-					"timestamp":    evt.Info.Timestamp.Unix(),
-					"extraData":    buttonClickData,
+					"buttonId":   buttonClickData["buttonId"],
+					"buttonText": buttonClickData["buttonText"],
+					"type":       buttonClickData["type"],
+					"phone":      dataMap["Sender"],
+					"jid":        dataMap["Sender"],
+					"pushName":   dataMap["PushName"],
+					"messageId":  dataMap["ID"],
+					"chat":       dataMap["Chat"],
+					"fromMe":     dataMap["FromMe"],
+					"timestamp":  evt.Info.Timestamp.Unix(),
+					"extraData":  buttonClickData,
 				},
 				"instanceToken": mycli.token,
 				"instanceId":    mycli.userID,
@@ -2161,6 +2191,97 @@ func contains(subscriptions []string, event string) bool {
 	return false
 }
 
+type vanessaGatewayInferenceRequest struct {
+	Service       string                 `json:"service"`
+	Input         map[string]interface{} `json:"input"`
+	RequestPrompt string                 `json:"request_prompt"`
+	Conversation  []interface{}          `json:"conversation"`
+	Metadata      map[string]interface{} `json:"metadata"`
+}
+
+type vanessaGatewayInferenceResponse struct {
+	OutputText string `json:"output_text"`
+}
+
+func (mycli *MyClient) analyzeMediaWithVanessaGateway(ctx context.Context, mediaKind string, mediaBase64 string, mimeType string, filename string, prompt string) (string, error) {
+	baseURL := strings.TrimRight(mycli.config.VanessaGatewayUrl, "/")
+	apiKey := strings.TrimSpace(mycli.config.VanessaGatewayApiKey)
+	if baseURL == "" || apiKey == "" {
+		return "", nil
+	}
+	if mediaBase64 == "" {
+		return "", nil
+	}
+
+	service := "vision"
+	input := map[string]interface{}{
+		"text":         prompt,
+		"image_base64": mediaBase64,
+	}
+	if mediaKind == "audio" {
+		service = "stt"
+		input = map[string]interface{}{
+			"audio_base64": mediaBase64,
+			"filename":     filename,
+			"mime_type":    mimeType,
+		}
+	}
+
+	body, err := json.Marshal(vanessaGatewayInferenceRequest{
+		Service:       service,
+		Input:         input,
+		RequestPrompt: "",
+		Conversation:  []interface{}{},
+		Metadata: map[string]interface{}{
+			"source":      "evolution-go-media-preprocessor",
+			"instance_id": mycli.userID,
+			"media_kind":  mediaKind,
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/inference", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("gateway returned %s: %s", resp.Status, string(respBody))
+	}
+
+	var parsed vanessaGatewayInferenceResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(parsed.OutputText), nil
+}
+
+func buildVanessaMediaConversation(mediaKind string, prompt string, mediaText string) string {
+	if mediaKind == "audio" {
+		return "Audio transcrito: " + mediaText
+	}
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" || prompt == "Descreve esta imagem e devolve uma analise curta para a Vanessa responder ao utilizador." {
+		return "Analise da imagem: " + mediaText
+	}
+	return "Mensagem do utilizador sobre a imagem: " + prompt + "\n\nAnalise da imagem: " + mediaText
+}
+
 func (w *whatsmeowService) sendToQueueOrWebhook(instance *instance_model.Instance, queueName string, jsonData []byte) {
 	if instance.RabbitmqEnable == "enabled" || instance.RabbitmqEnable == "true" {
 		err := w.rabbitmqProducer.Produce(queueName, jsonData, instance.RabbitmqEnable, instance.Id)
@@ -2189,8 +2310,12 @@ func (w *whatsmeowService) sendToQueueOrWebhook(instance *instance_model.Instanc
 		w.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Message sent to websocket successfully", instance.Id)
 	}
 
-	if instance.Webhook != "" && instance.Webhook != "disabled" {
-		err := w.webhookProducer.Produce(queueName, jsonData, instance.Webhook, instance.Id)
+	if (instance.Webhook != "" && instance.Webhook != "disabled") || w.config.WebhookUrl != "" {
+		webhookURL := instance.Webhook
+		if webhookURL == "disabled" {
+			webhookURL = ""
+		}
+		err := w.webhookProducer.Produce(queueName, jsonData, webhookURL, instance.Id)
 		if err != nil {
 			w.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Failed to send message to webhook: %s", instance.Id, err)
 			return
