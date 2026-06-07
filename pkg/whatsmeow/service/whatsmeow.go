@@ -1995,6 +1995,10 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		postMap["instanceId"] = mycli.userID
 		postMap["instanceName"] = mycli.Instance.Name
 
+		if err := mycli.forwardMessageMediaToVanessaGatewayWebhook(postMap); err != nil {
+			mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] Vanessa Gateway media webhook forward failed: %v", mycli.userID, err)
+		}
+
 		values, err := json.Marshal(postMap)
 		if err != nil {
 			mycli.loggerWrapper.GetLogger(mycli.userID).LogError("[%s] Failed to marshal JSON for queue", mycli.userID)
@@ -2269,6 +2273,92 @@ func (mycli *MyClient) analyzeMediaWithVanessaGateway(ctx context.Context, media
 		return "", err
 	}
 	return strings.TrimSpace(parsed.OutputText), nil
+}
+
+func (mycli *MyClient) forwardMessageMediaToVanessaGatewayWebhook(postMap map[string]interface{}) error {
+	baseURL := strings.TrimRight(mycli.config.VanessaGatewayMediaWebhookUrl, "/")
+	if baseURL == "" || sameWebhookTarget(baseURL, mycli.webhookUrl) {
+		return nil
+	}
+
+	data, ok := postMap["data"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	message, ok := data["Message"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	if !hasForwardableVanessaMedia(message) {
+		return nil
+	}
+
+	if mediaURL, ok := message["mediaUrl"].(string); ok && strings.TrimSpace(mediaURL) != "" {
+		message["mediaLink"] = mediaURL
+	}
+
+	body, err := json.Marshal(postMap)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		baseURL,
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey := strings.TrimSpace(mycli.config.VanessaGatewayMediaWebhookApiKey); apiKey != "" {
+		req.Header.Set("apikey", apiKey)
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("gateway media webhook returned %s", resp.Status)
+		}
+		return fmt.Errorf("gateway media webhook returned %s: %s", resp.Status, string(respBody))
+	}
+
+	return nil
+}
+
+func hasForwardableVanessaMedia(message map[string]interface{}) bool {
+	hasMediaPayload := false
+	if mediaURL, ok := message["mediaUrl"].(string); ok && strings.TrimSpace(mediaURL) != "" {
+		hasMediaPayload = true
+	}
+	if mediaBase64, ok := message["base64"].(string); ok && strings.TrimSpace(mediaBase64) != "" {
+		hasMediaPayload = true
+	}
+	if !hasMediaPayload {
+		return false
+	}
+
+	if _, ok := message["audioMessage"].(map[string]interface{}); ok {
+		return true
+	}
+	if _, ok := message["imageMessage"].(map[string]interface{}); ok {
+		return true
+	}
+	return false
+}
+
+func sameWebhookTarget(left string, right string) bool {
+	left = strings.TrimRight(strings.TrimSpace(left), "/")
+	right = strings.TrimRight(strings.TrimSpace(right), "/")
+	return left != "" && left == right
 }
 
 func buildVanessaMediaConversation(mediaKind string, prompt string, mediaText string) string {
