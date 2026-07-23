@@ -140,3 +140,13 @@ A pre-built React SPA served from `manager/dist/`. Routes under `/manager/*` ser
 | Environment variables | `pkg/config/env/env.go`, `pkg/config/config.go` |
 | Event fanout | `pkg/events/*/` |
 | Bootstrap / wiring | `cmd/evolution-go/main.go` |
+
+## Development Workflow — Mandatory Self-Review
+
+After completing any non-trivial implementation in this repo (new endpoint, service change, or a bugfix that changes behavior), before reporting the task as done:
+
+1. Run the `code-review` skill against the changed files.
+2. Invoke the `production-readiness-auditor` agent to check the change is robust, not half-baked, and free of shortcuts/gambiarras.
+3. Fix whatever either one surfaces before telling the user the task is complete.
+
+This runs automatically as part of finishing the work — do not wait to be asked. Skip only for trivial changes (typos, comments, one-line config tweaks).
