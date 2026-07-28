@@ -141,12 +141,15 @@ A pre-built React SPA served from `manager/dist/`. Routes under `/manager/*` ser
 | Event fanout | `pkg/events/*/` |
 | Bootstrap / wiring | `cmd/evolution-go/main.go` |
 
-## Development Workflow — Mandatory Self-Review
+## Development Workflow - Mandatory Completion Gate
 
-After completing any non-trivial implementation in this repo (new endpoint, service change, or a bugfix that changes behavior), before reporting the task as done:
+After every non-trivial implementation, do not mark the work complete immediately. The following completion loop is mandatory:
 
-1. Run the `code-review` skill against the changed files.
-2. Invoke the `production-readiness-auditor` agent to check the change is robust, not half-baked, and free of shortcuts/gambiarras.
-3. Fix whatever either one surfaces before telling the user the task is complete.
+1. Run the project verification commands relevant to the change (tests, lint, type checks, build, migrations, or static analysis).
+2. Load and run the skill defined at workspace-root `.agents/skills/production-readiness-auditor/SKILL.md` against the complete implementation and its end-to-end flow.
+3. Load and run the skill defined at workspace-root `.agents/skills/anti-overengineering-codex-skill/SKILL.md` to detect unnecessary abstractions, avoidable model calls, duplicated logic, excess context, cost, latency, or moving parts.
+4. Treat every supported BLOCKER, HIGH, MEDIUM, failed check, missing critical test, and actionable simplification as implementation work. Fix it autonomously without asking the user for permission or confirmation.
+5. Re-run the affected verification commands and both skills after the fixes. Continue the audit -> fix -> verify loop until all checks pass and both reviews are green, with no unresolved production blocker or actionable overengineering finding.
+6. Only then mark the task, OpenSpec item, or change as completed. Never mark partial, failing, unaudited, or knowingly fragile work as done.
 
-This runs automatically as part of finishing the work — do not wait to be asked. Skip only for trivial changes (typos, comments, one-line config tweaks).
+This gate runs automatically before completion; do not wait for the user to request it. If an external dependency, unavailable credential, or irreversible decision makes green status impossible, keep the work open and report the exact blocker instead of claiming completion.
