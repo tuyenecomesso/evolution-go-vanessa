@@ -441,7 +441,20 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 
 	client.EnableAutoReconnect = true
 	client.AutoReconnectHook = func(err error) bool {
-		w.loggerWrapper.GetLogger(cd.Instance.Id).LogWarn("[%s] WhatsApp auto-reconnect failed, will keep retrying: %v", cd.Instance.Id, err)
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "temporar") ||
+			strings.Contains(errText, "ban") ||
+			strings.Contains(errText, "restrict") ||
+			strings.Contains(errText, "logged out") ||
+			strings.Contains(errText, "unauthorized") {
+			w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] WhatsApp auto-reconnect stopped after restriction-like error: %v", cd.Instance.Id, err)
+			return false
+		}
+		if client.AutoReconnectErrors >= 10 {
+			w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] WhatsApp auto-reconnect stopped after %d consecutive failures: %v", cd.Instance.Id, client.AutoReconnectErrors, err)
+			return false
+		}
+		w.loggerWrapper.GetLogger(cd.Instance.Id).LogWarn("[%s] WhatsApp auto-reconnect failed (%d/10), will retry: %v", cd.Instance.Id, client.AutoReconnectErrors, err)
 		return true
 	}
 	client.AutoTrustIdentity = true
