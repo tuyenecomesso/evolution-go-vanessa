@@ -439,7 +439,11 @@ func (w whatsmeowService) StartClient(cd *ClientData) {
 		}
 	}
 
-	client.EnableAutoReconnect = false
+	client.EnableAutoReconnect = true
+	client.AutoReconnectHook = func(err error) bool {
+		w.loggerWrapper.GetLogger(cd.Instance.Id).LogWarn("[%s] WhatsApp auto-reconnect failed, will keep retrying: %v", cd.Instance.Id, err)
+		return true
+	}
 	client.AutoTrustIdentity = true
 
 	mycli := &MyClient{
@@ -1870,20 +1874,14 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		mycli.userInfoCache.Delete(mycli.Instance.Token)
 		mycli.loggerWrapper.GetLogger(mycli.userID).LogInfo("[%s] UserInfo cache cleared for token: %s", mycli.userID, mycli.Instance.Token)
 
-		mycli.Instance.DisconnectReason = "Disconnected emitted because the websocket is closed by the server."
-		mycli.Instance.Connected = false
+		mycli.Instance.DisconnectReason = "WhatsApp websocket disconnected; auto-reconnect active."
+		mycli.Instance.Connected = true
 		err := mycli.instanceRepository.UpdateConnected(mycli.Instance.Id, mycli.Instance.Connected, mycli.Instance.DisconnectReason)
 		if err != nil {
 			mycli.loggerWrapper.GetLogger(mycli.userID).LogError("[%s] Error updating instance: %s", mycli.Instance.Id, err)
 		}
 
-		// Trigger instance restart via websocket-capable service (non-blocking)
-		go func(instanceID string) {
-			mycli.loggerWrapper.GetLogger(instanceID).LogInfo("[%s] Disconnected detected, restarting instance", instanceID)
-			if err := mycli.service.ReconnectClient(instanceID); err != nil {
-				mycli.loggerWrapper.GetLogger(instanceID).LogError("[%s] Failed to restart instance: %v", instanceID, err)
-			}
-		}(mycli.userID)
+		mycli.loggerWrapper.GetLogger(mycli.userID).LogWarn("[%s] WhatsApp websocket disconnected; native auto-reconnect is active", mycli.userID)
 	case *events.LabelEdit:
 		doWebhook = true
 		postMap["event"] = "LabelEdit"

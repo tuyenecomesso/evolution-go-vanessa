@@ -30,7 +30,7 @@ services:
       LOG_COMPRESS: "true"
 
       # Conexão
-      CONNECT_ON_STARTUP: "false"
+      CONNECT_ON_STARTUP: "true"
       WEBHOOK_FILES: "true"
 
       # Sistema
